@@ -17,3 +17,5 @@ create policy "Creator file upload" on storage.objects for insert to authenticat
 create policy "Creator file read" on storage.objects for select to authenticated using(bucket_id='mod-files' and (storage.foldername(name))[1]=auth.uid()::text);
 create policy "Cover upload" on storage.objects for insert to authenticated with check(bucket_id='mod-covers' and (storage.foldername(name))[1]=auth.uid()::text);
 create policy "Public covers" on storage.objects for select using(bucket_id='mod-covers');
+
+create policy "Approved mod files can be downloaded" on storage.objects for select using(bucket_id='mod-files' and exists(select 1 from public.mod_versions v join public.mods m on m.id=v.mod_id where v.file_path=name and m.status='approved'));

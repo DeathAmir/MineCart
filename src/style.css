@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+:root { font-family: 'DM Sans', sans-serif; color-scheme: dark; font-synthesis: none; text-rendering: optimizeLegibility; }
+.font-display { font-family: 'Space Grotesk', sans-serif; }
+html { scroll-behavior: smooth; background: #0b0912; }
+body { margin: 0; min-width: 320px; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+.field { display:block; width:100%; border:1px solid rgba(255,255,255,.1); border-radius:.6rem; background:#100d17; padding:.8rem 1rem; color:#f4efff; outline:none; font-size:.8rem; }
+.field:focus { border-color:rgba(167,139,250,.7); }
+.field::placeholder { color:#71687e; }
+select.field option { background:#15111e; }
+.hero-grid { background: radial-gradient(ellipse at 80% 45%,rgba(111,64,178,.14),transparent 36%),linear-gradient(180deg,#100c19 0%,#0b0912 100%); }
+::selection { background:rgba(139,92,246,.45); color:white; }

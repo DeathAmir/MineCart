@@ -19,3 +19,29 @@ create policy "Cover upload" on storage.objects for insert to authenticated with
 create policy "Public covers" on storage.objects for select using(bucket_id='mod-covers');
 
 create policy "Approved mod files can be downloaded" on storage.objects for select using(bucket_id='mod-files' and exists(select 1 from public.mod_versions v join public.mods m on m.id=v.mod_id where v.file_path=name and m.status='approved'));
+
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  chosen_username text;
+begin
+  chosen_username := coalesce(
+    nullif(new.raw_user_meta_data->>'username', ''),
+    split_part(new.email, '@', 1),
+    'player'
+  );
+  insert into public.profiles(id, username)
+  values (new.id, chosen_username)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();

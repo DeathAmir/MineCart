@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Blocks, Check, ChevronDown, CircleHelp, Compass, Download, ExternalLink, FileArchive, Github, Grid2X2, Layers3, LogIn, Menu, Package, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, X } from 'lucide-vue-next'
 import { backendReady, supabase } from './lib/supabase'
+import initSearch, { score_project } from './wasm/pkg/minecart_search.js'
 
 type Release = { id:string; version_number:string; game_versions:string[]; loader:string; file_name:string; file_path:string; release_notes:string; created_at:string }
 type Project = { id:string; title:string; slug:string; summary:string; description?:string; category:string; loader:string; downloads:number; author:string; icon_url?:string; game_versions?:string[]; status?:string; mod_versions?:Release[] }
@@ -9,6 +10,7 @@ type Page = 'discover'|'login'|'publish'|'dashboard'|'project'
 const categories = ['All projects','Adventure','Technology','Magic','Utility','World Generation','Decoration','Performance','Food','Resource Packs','Shaders','Modpacks']
 const loaders = ['Any loader','NeoForge','Forge','Fabric','Quilt','Resource Pack','Datapack']
 const projects = ref<Project[]>([]), mine = ref<Project[]>([])
+const wasmReady = ref(false)
 const category = ref('All projects'), loader = ref('Any loader'), sort = ref('Popular'), search = ref('')
 const page = ref<Page>('discover'), selected = ref<Project|null>(null), loading = ref(true), loadError = ref('')
 const user = ref<any>(null), username = ref(''), mobileMenu = ref(false), showFilters = ref(false)
@@ -18,7 +20,8 @@ const form = ref({title:'',summary:'',description:'',category:'Technology',loade
 const toast = ref(''); let toastTimer:ReturnType<typeof setTimeout>|undefined
 let authSubscription:{unsubscribe:()=>void}|undefined
 const visible = computed(() => {
- let list = projects.value.filter(p => (category.value==='All projects'||p.category===category.value) && (loader.value==='Any loader'||p.loader===loader.value) && (p.title+' '+p.summary+' '+p.loader+' '+p.author+' '+p.category).toLowerCase().includes(search.value.toLowerCase().trim()))
+ let list = projects.value.filter(p => (category.value==='All projects'||p.category===category.value) && (loader.value==='Any loader'||p.loader===loader.value) && (!search.value.trim() || (wasmReady.value ? score_project(search.value,p.title,p.summary,p.category,p.loader)>0 : (p.title+' '+p.summary+' '+p.loader+' '+p.author+' '+p.category).toLowerCase().includes(search.value.toLowerCase().trim()))))
+ if(search.value.trim() && wasmReady.value) list=[...list].sort((a,b)=>score_project(search.value,b.title,b.summary,b.category,b.loader)-score_project(search.value,a.title,a.summary,a.category,a.loader))
  if(sort.value==='Popular') list=[...list].sort((a,b)=>b.downloads-a.downloads)
  if(sort.value==='Recently updated') list=[...list].sort((a,b)=>new Date(b.mod_versions?.[0]?.created_at||0).getTime()-new Date(a.mod_versions?.[0]?.created_at||0).getTime())
  if(sort.value==='Name') list=[...list].sort((a,b)=>a.title.localeCompare(b.title))
@@ -27,6 +30,7 @@ const visible = computed(() => {
 const downloads = computed(()=>projects.value.reduce((n,p)=>n+p.downloads,0))
 const fmt=(n:number)=>Intl.NumberFormat('en',{notation:n>=1000?'compact':'standard',maximumFractionDigits:1}).format(n||0)
 const initials=(s:string)=>s.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase()||'MC'
+function scrollLibrary(){document.getElementById('library')?.scrollIntoView({behavior:'smooth'})}
 function notify(s:string){toast.value=s;if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3500)}
 function navigate(p:Page){page.value=p;selected.value=null;mobileMenu.value=false;history.replaceState(null,'',p==='discover'?'#/':'#/'+p);window.scrollTo({top:0,behavior:'smooth'});if(p==='dashboard')void loadMine()}
 function openProject(p:Project){selected.value=p;page.value='project';history.replaceState(null,'','#/project/'+p.slug);window.scrollTo({top:0,behavior:'smooth'})}
@@ -83,6 +87,7 @@ async function downloadRelease(p:Project,r?:Release){
 }
 function keydown(e:KeyboardEvent){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('project-search')?.focus()}if(e.key==='Escape')showFilters.value=false}
 onMounted(async()=>{
+ try{await initSearch();wasmReady.value=true}catch{wasmReady.value=false}
  await loadProjects()
  if(supabase){const {data}=await supabase.auth.getSession();user.value=data.session?.user||null;username.value=user.value?.user_metadata?.username||user.value?.email?.split('@')[0]||'';const {data:listener}=supabase.auth.onAuthStateChange((_event,session)=>{user.value=session?.user||null;username.value=user.value?.user_metadata?.username||user.value?.email?.split('@')[0]||'';if(user.value)void loadMine()});authSubscription=listener.subscription}
  const h=location.hash
@@ -104,7 +109,7 @@ onUnmounted(()=>{authSubscription?.unsubscribe();if(toastTimer)clearTimeout(toas
 
  <main v-if="page==='discover'">
   <section class="hero-wrap"><div class="hero-noise"></div><div class="hero-orb orb-one"></div><div class="hero-orb orb-two"></div><div class="relative mx-auto grid max-w-[1440px] items-center gap-12 px-5 pb-20 pt-20 md:pt-28 lg:grid-cols-[1.05fr_.95fr] lg:px-10 lg:pb-28">
-   <div class="relative z-10"><div class="eyebrow"><span class="eyebrow-dot"></span> THE OPEN MODDING PLATFORM <span class="eyebrow-line"></span><span>01 / DISCOVER</span></div><h1 class="hero-title mt-8">Make your<br/><span>next world</span><br/>unforgettable<span class="text-violet-300">.</span></h1><p class="mt-7 max-w-[540px] text-[15px] leading-8 text-[#b7aec8]">One home for the creations that transform Minecraft. Discover mods, resource packs, shaders and modpacks made by the community.</p><div class="mt-9 flex flex-wrap gap-3"><button class="primary-button" @click="document.getElementById('library')?.scrollIntoView({behavior:'smooth'})">Explore the library <ArrowRight :size="17"/></button><button class="secondary-button" @click="navigate('publish')"><Plus :size="17"/> Share your creation</button></div><div class="mt-12 flex flex-wrap gap-x-9 gap-y-4 border-t border-white/[.09] pt-6"><div><div class="font-display text-2xl font-bold">{{fmt(projects.length)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Approved projects</div></div><div><div class="font-display text-2xl font-bold">{{fmt(downloads)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Recorded downloads</div></div><div><div class="flex items-center gap-2 font-display text-2xl font-bold"><span class="h-2 w-2 rounded-full" :class="backendReady?'bg-emerald-400':'bg-amber-300'"></span>{{backendReady?'Connected':'Preview'}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Platform status</div></div></div></div>
+   <div class="relative z-10"><div class="eyebrow"><span class="eyebrow-dot"></span> THE OPEN MODDING PLATFORM <span class="eyebrow-line"></span><span>01 / DISCOVER</span></div><h1 class="hero-title mt-8">Make your<br/><span>next world</span><br/>unforgettable<span class="text-violet-300">.</span></h1><p class="mt-7 max-w-[540px] text-[15px] leading-8 text-[#b7aec8]">One home for the creations that transform Minecraft. Discover mods, resource packs, shaders and modpacks made by the community.</p><div class="mt-9 flex flex-wrap gap-3"><button class="primary-button" @click="scrollLibrary">Explore the library <ArrowRight :size="17"/></button><button class="secondary-button" @click="navigate('publish')"><Plus :size="17"/> Share your creation</button></div><div class="mt-12 flex flex-wrap gap-x-9 gap-y-4 border-t border-white/[.09] pt-6"><div><div class="font-display text-2xl font-bold">{{fmt(projects.length)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Approved projects</div></div><div><div class="font-display text-2xl font-bold">{{fmt(downloads)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Recorded downloads</div></div><div><div class="flex items-center gap-2 font-display text-2xl font-bold"><span class="h-2 w-2 rounded-full" :class="backendReady?'bg-emerald-400':'bg-amber-300'"></span>{{backendReady?'Connected':'Preview'}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Platform status</div></div></div></div>
    <div class="hero-art relative mx-auto hidden h-[470px] w-full max-w-[600px] items-center justify-center lg:flex"><div class="art-ring ring-a"></div><div class="art-ring ring-b"></div><div class="art-ring ring-c"></div><div class="art-core"><Blocks :size="84" stroke-width="1.25"/></div><div class="art-chip chip-top"><span class="chip-icon"><Package :size="16"/></span><span><b>Mods & add-ons</b><small>Build your own experience</small></span></div><div class="art-chip chip-left"><span class="chip-icon"><Sparkles :size="16"/></span><span><b>Made by creators</b><small>Community powered</small></span></div><div class="art-chip chip-right"><span class="chip-icon"><ShieldCheck :size="16"/></span><span><b>Open discovery</b><small>Find your next favorite</small></span></div><div class="art-caption">MINECART <span>CREATOR ECOSYSTEM / 2026</span></div></div>
   </div></section>
 

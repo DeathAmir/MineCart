@@ -1,314 +1,137 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import {
-  ArrowDownToLine, ArrowRight, ArrowUpRight, Boxes, Check, ChevronDown, CircleUserRound,
-  CloudUpload, Compass, Download, Gamepad2, Github, Grid2X2, Heart, Layers3, LogIn,
-  Menu, Package, Plus, Search, Settings2, ShieldCheck, Sparkles, Upload, X, Zap
-} from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Blocks, Check, ChevronDown, CircleHelp, Compass, Download, ExternalLink, FileArchive, Github, Grid2X2, Layers3, LogIn, Menu, Package, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, UserRound, X } from 'lucide-vue-next'
 import { backendReady, supabase } from './lib/supabase'
 
-type Mod = {
-  id: string
-  title: string
-  slug: string
-  summary: string
-  description?: string
-  category: string
-  loader: string
-  downloads: number
-  author: string
-  icon_url?: string
-  game_versions?: string[]
-  mod_versions?: Array<{ id: string; version_number: string; game_versions: string[]; loader: string; file_name: string; file_path: string; release_notes: string; created_at: string }>
-}
-
-const categories = ['All mods', 'Adventure', 'Technology', 'Magic', 'Utility', 'World Generation', 'Decoration', 'Performance', 'Food']
-const demoMods: Mod[] = [
-  { id: '1', title: 'Create: Mechanical Wonders', slug: 'create-mechanical-wonders', summary: 'Build intricate machines, moving contraptions and a world full of automation.', category: 'Technology', loader: 'Forge', downloads: 128400, author: 'CopperWorks' },
-  { id: '2', title: 'Lumen Shaders', slug: 'lumen-shaders', summary: 'A warm, cinematic lighting preset with beautiful skies and reflections.', category: 'Visual', loader: 'Iris', downloads: 96300, author: 'AstraLabs' },
-  { id: '3', title: 'Wildlands Expanded', slug: 'wildlands-expanded', summary: 'Explore new biomes, ancient ruins and mysterious creatures.', category: 'World Generation', loader: 'Fabric', downloads: 82400, author: 'MossyStudio' },
-  { id: '4', title: 'Arcane Archives', slug: 'arcane-archives', summary: 'A deep magic system built around discovery, rituals and rare artifacts.', category: 'Magic', loader: 'NeoForge', downloads: 67100, author: 'RuneSmith' },
-  { id: '5', title: 'Inventory Atelier', slug: 'inventory-atelier', summary: 'A cleaner inventory workflow with smart sorting and quick actions.', category: 'Utility', loader: 'Fabric', downloads: 51200, author: 'PixelForge' },
-  { id: '6', title: 'Verdant Decor', slug: 'verdant-decor', summary: 'Hundreds of detailed building pieces for cozy and natural spaces.', category: 'Decoration', loader: 'NeoForge', downloads: 43800, author: 'FernAndOak' },
-  { id: '7', title: 'Smooth Frames', slug: 'smooth-frames', summary: 'Client-side optimizations for a smoother and more consistent experience.', category: 'Performance', loader: 'Fabric', downloads: 39100, author: 'FrameLabs' },
-  { id: '8', title: 'Culinary Journey', slug: 'culinary-journey', summary: 'Discover ingredients, recipes and a whole new way to cook.', category: 'Food', loader: 'Forge', downloads: 28600, author: 'LittlePan' }
-]
-
-const activeCategory = ref('All mods')
-const search = ref('')
-const mods = ref<Mod[]>(demoMods)
-const selectedMod = ref<Mod | null>(null)
-const page = ref<'home' | 'login' | 'upload' | 'dashboard' | 'detail'>('home')
-const user = ref<any>(null)
-const mobileMenu = ref(false)
-const authMode = ref<'login' | 'signup'>('login')
-const email = ref('')
-const password = ref('')
-const username = ref('')
-const authBusy = ref(false)
-const authMessage = ref('')
-const uploadBusy = ref(false)
-const uploadMessage = ref('')
-const projectFile = ref<File | null>(null)
-const projectIcon = ref<File | null>(null)
-const form = ref({ title: '', summary: '', description: '', category: 'Technology', loader: 'NeoForge', version: '1.0.0', gameVersions: '1.21.1', releaseNotes: 'Initial release' })
-const myMods = ref<Mod[]>([])
-const filteredMods = computed(() => mods.value.filter(m =>
-  (activeCategory.value === 'All mods' || m.category === activeCategory.value) &&
-  (m.title + ' ' + m.summary + ' ' + m.loader + ' ' + m.author).toLowerCase().includes(search.value.toLowerCase())
-))
-const formatDownloads = (n: number) => Intl.NumberFormat('en', { notation: n >= 10000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n || 0)
-const initials = (s: string) => s.split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase()
-
-function navigate(target: typeof page.value) {
-  page.value = target
-  selectedMod.value = null
-  mobileMenu.value = false
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-  history.replaceState(null, '', target === 'home' ? '#/' : '#/' + target)
-  if (target === 'dashboard') loadMyMods()
-}
-function openMod(mod: Mod) {
-  selectedMod.value = mod
-  page.value = 'detail'
-  history.replaceState(null, '', '#/mod/' + mod.slug)
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-async function loadMods() {
-  if (!supabase) return
-  const { data } = await supabase.from('mods').select('*, profiles(username), mod_versions(*)').eq('status', 'approved').order('downloads', { ascending: false }).limit(60)
-  if (data?.length) mods.value = data.map((m: any) => ({ ...m, author: m.profiles?.username || 'Creator', downloads: Number(m.downloads || 0), mod_versions: m.mod_versions || [] }))
-}
-async function loadMyMods() {
-  if (!supabase || !user.value) return
-  const { data } = await supabase.from('mods').select('*, mod_versions(*)').eq('author_id', user.value.id).order('updated_at', { ascending: false })
-  myMods.value = (data || []).map((m: any) => ({ ...m, author: username.value || user.value.email, downloads: Number(m.downloads || 0), mod_versions: m.mod_versions || [] }))
-}
-async function handleAuth() {
-  authMessage.value = ''
-  if (!supabase) { authMessage.value = 'Connect Supabase to enable accounts. See the setup guide in the repository.'; return }
-  authBusy.value = true
-  try {
-    if (authMode.value === 'signup') {
-      const { data, error } = await supabase.auth.signUp({ email: email.value, password: password.value, options: { data: { username: username.value || email.value.split('@')[0] } } })
-      if (error) throw error
-      if (data.user && data.session) await supabase.from('profiles').upsert({ id: data.user.id, username: username.value || email.value.split('@')[0] })
-      authMessage.value = 'Account created. Check your email if confirmation is enabled.'
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.value, password: password.value })
-      if (error) throw error
-    }
-  } catch (e: any) { authMessage.value = e.message || 'Authentication failed.' }
-  finally { authBusy.value = false }
-}
-async function signOut() {
-  await supabase?.auth.signOut()
-  user.value = null
-  myMods.value = []
-  navigate('home')
-}
-async function publishProject() {
-  uploadMessage.value = ''
-  if (!supabase || !user.value) { uploadMessage.value = 'Sign in and connect Supabase before publishing.'; return }
-  if (!projectFile.value) { uploadMessage.value = 'Choose your .jar or .zip file first.'; return }
-  if (!form.value.title.trim() || !form.value.summary.trim()) { uploadMessage.value = 'Add a project title and short summary.'; return }
-  uploadBusy.value = true
-  try {
-    const slug = form.value.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Math.random().toString(36).slice(2, 6)
-    let iconUrl = null
-    if (projectIcon.value) {
-      const iconPath = user.value.id + '/' + slug + '-' + projectIcon.value.name
-      const iconUpload = await supabase.storage.from('mod-covers').upload(iconPath, projectIcon.value, { upsert: true })
-      if (iconUpload.error) throw iconUpload.error
-      iconUrl = supabase.storage.from('mod-covers').getPublicUrl(iconPath).data.publicUrl
-    }
-    const { data: mod, error: modError } = await supabase.from('mods').insert({
-      author_id: user.value.id, title: form.value.title, slug, summary: form.value.summary,
-      description: form.value.description, category: form.value.category, loader: form.value.loader,
-      game_versions: form.value.gameVersions.split(',').map(x => x.trim()).filter(Boolean), icon_url: iconUrl
-    }).select().single()
-    if (modError) throw modError
-    const path = user.value.id + '/' + mod.id + '/' + projectFile.value.name
-    const { error: fileError } = await supabase.storage.from('mod-files').upload(path, projectFile.value)
-    if (fileError) throw fileError
-    const { error: versionError } = await supabase.from('mod_versions').insert({
-      mod_id: mod.id, version_number: form.value.version,
-      game_versions: form.value.gameVersions.split(',').map(x => x.trim()).filter(Boolean),
-      file_path: path, file_name: projectFile.value.name, file_size: projectFile.value.size,
-      loader: form.value.loader, release_notes: form.value.releaseNotes
-    })
-    if (versionError) throw versionError
-    uploadMessage.value = 'Project submitted! It will appear publicly after moderation.'
-    form.value = { title: '', summary: '', description: '', category: 'Technology', loader: 'NeoForge', version: '1.0.0', gameVersions: '1.21.1', releaseNotes: 'Initial release' }
-    projectFile.value = null
-    projectIcon.value = null
-    await loadMyMods()
-  } catch (e: any) { uploadMessage.value = e.message || 'Upload failed.' }
-  finally { uploadBusy.value = false }
-}
-async function downloadVersion(mod: Mod) {
-  if (!supabase) { alert('Connect Supabase to download project files.'); return }
-  const versions = mod.mod_versions || []
-  const version = versions[0]
-  if (!version) { alert('No published release found.'); return }
-  const { data, error } = await supabase.storage.from('mod-files').createSignedUrl(version.file_path, 60)
-  if (error) { alert(error.message); return }
-  window.open(data.signedUrl, '_blank', 'noopener')
-  await supabase.from('mods').update({ downloads: (mod.downloads || 0) + 1 }).eq('id', mod.id)
-  mod.downloads++
-}
-onMounted(async () => {
-  if (supabase) {
-    const { data } = await supabase.auth.getSession()
-    user.value = data.session?.user || null
-    username.value = user.value?.user_metadata?.username || user.value?.email?.split('@')[0] || ''
-    supabase.auth.onAuthStateChange((_event, session) => {
-      user.value = session?.user || null
-      username.value = user.value?.user_metadata?.username || user.value?.email?.split('@')[0] || ''
-    })
-    await loadMods()
-  }
-  const hash = location.hash
-  if (hash.startsWith('#/mod/')) {
-    const slug = hash.slice(6)
-    const found = mods.value.find(m => m.slug === slug)
-    if (found) openMod(found)
-  } else if (hash === '#/login') page.value = 'login'
-  else if (hash === '#/upload') page.value = 'upload'
-  else if (hash === '#/dashboard') page.value = 'dashboard'
+type Release = { id:string; version_number:string; game_versions:string[]; loader:string; file_name:string; file_path:string; release_notes:string; created_at:string }
+type Project = { id:string; title:string; slug:string; summary:string; description?:string; category:string; loader:string; downloads:number; author:string; icon_url?:string; game_versions?:string[]; status?:string; mod_versions?:Release[] }
+type Page = 'discover'|'login'|'publish'|'dashboard'|'project'
+const categories = ['All projects','Adventure','Technology','Magic','Utility','World Generation','Decoration','Performance','Food','Resource Packs','Shaders','Modpacks']
+const loaders = ['Any loader','NeoForge','Forge','Fabric','Quilt','Resource Pack','Datapack']
+const projects = ref<Project[]>([]), mine = ref<Project[]>([])
+const category = ref('All projects'), loader = ref('Any loader'), sort = ref('Popular'), search = ref('')
+const page = ref<Page>('discover'), selected = ref<Project|null>(null), loading = ref(true), loadError = ref('')
+const user = ref<any>(null), username = ref(''), mobileMenu = ref(false), showFilters = ref(false)
+const authMode = ref<'login'|'signup'>('login'), email = ref(''), password = ref(''), authBusy = ref(false), authMessage = ref('')
+const publishBusy = ref(false), publishMessage = ref(''), projectFile = ref<File|null>(null), projectIcon = ref<File|null>(null)
+const form = ref({title:'',summary:'',description:'',category:'Technology',loader:'NeoForge',version:'1.0.0',gameVersions:'1.21.1',releaseNotes:''})
+const toast = ref(''); let toastTimer:ReturnType<typeof setTimeout>|undefined
+let authSubscription:{unsubscribe:()=>void}|undefined
+const visible = computed(() => {
+ let list = projects.value.filter(p => (category.value==='All projects'||p.category===category.value) && (loader.value==='Any loader'||p.loader===loader.value) && (p.title+' '+p.summary+' '+p.loader+' '+p.author+' '+p.category).toLowerCase().includes(search.value.toLowerCase().trim()))
+ if(sort.value==='Popular') list=[...list].sort((a,b)=>b.downloads-a.downloads)
+ if(sort.value==='Recently updated') list=[...list].sort((a,b)=>new Date(b.mod_versions?.[0]?.created_at||0).getTime()-new Date(a.mod_versions?.[0]?.created_at||0).getTime())
+ if(sort.value==='Name') list=[...list].sort((a,b)=>a.title.localeCompare(b.title))
+ return list
 })
+const downloads = computed(()=>projects.value.reduce((n,p)=>n+p.downloads,0))
+const fmt=(n:number)=>Intl.NumberFormat('en',{notation:n>=1000?'compact':'standard',maximumFractionDigits:1}).format(n||0)
+const initials=(s:string)=>s.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase()||'MC'
+function notify(s:string){toast.value=s;if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',3500)}
+function navigate(p:Page){page.value=p;selected.value=null;mobileMenu.value=false;history.replaceState(null,'',p==='discover'?'#/':'#/'+p);window.scrollTo({top:0,behavior:'smooth'});if(p==='dashboard')void loadMine()}
+function openProject(p:Project){selected.value=p;page.value='project';history.replaceState(null,'','#/project/'+p.slug);window.scrollTo({top:0,behavior:'smooth'})}
+async function loadProjects(){
+ loading.value=true;loadError.value=''
+ if(!supabase){projects.value=[];loading.value=false;return}
+ const {data,error}=await supabase.from('mods').select('*, profiles(username), mod_versions(id,version_number,game_versions,loader,file_name,file_path,release_notes,created_at)').eq('status','approved').order('downloads',{ascending:false}).limit(100)
+ if(error){loadError.value=error.message;projects.value=[]}else projects.value=(data||[]).map((p:any)=>({...p,author:p.profiles?.username||'Creator',downloads:Number(p.downloads||0),mod_versions:(p.mod_versions||[]).sort((a:Release,b:Release)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime())}))
+ loading.value=false
+}
+async function loadMine(){
+ if(!supabase||!user.value){mine.value=[];return}
+ const {data,error}=await supabase.from('mods').select('*, mod_versions(*)').eq('author_id',user.value.id).order('updated_at',{ascending:false})
+ if(error){notify(error.message);return}
+ mine.value=(data||[]).map((p:any)=>({...p,author:username.value,downloads:Number(p.downloads||0),mod_versions:p.mod_versions||[]}))
+}
+async function submitAuth(){
+ authMessage.value=''
+ if(!supabase){authMessage.value='Supabase is not configured. Add your project URL and publishable key.';return}
+ authBusy.value=true
+ try{
+  if(authMode.value==='signup'){const {error}=await supabase.auth.signUp({email:email.value,password:password.value,options:{data:{username:username.value||email.value.split('@')[0]}}});if(error)throw error;authMessage.value='Account created. Check your email to confirm your address.'}
+  else{const {error}=await supabase.auth.signInWithPassword({email:email.value,password:password.value});if(error)throw error;navigate('discover')}
+ }catch(e:any){authMessage.value=e.message||'Authentication failed.'}finally{authBusy.value=false}
+}
+async function signOut(){await supabase?.auth.signOut();user.value=null;mine.value=[];navigate('discover');notify('Signed out.')}
+async function publishProject(){
+ publishMessage.value=''
+ if(!supabase||!user.value){publishMessage.value='Sign in and connect Supabase before publishing.';return}
+ if(!form.value.title.trim()||!form.value.summary.trim()||!projectFile.value){publishMessage.value='Project name, summary and release file are required.';return}
+ if(projectFile.value.size>250*1024*1024){publishMessage.value='The release file exceeds the 250 MB limit.';return}
+ if(projectIcon.value&&projectIcon.value.size>5*1024*1024){publishMessage.value='The project icon exceeds the 5 MB limit.';return}
+ publishBusy.value=true
+ try{
+  const slug=form.value.title.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+crypto.randomUUID().slice(0,6)
+  let iconUrl:string|null=null
+  if(projectIcon.value){const iconPath=user.value.id+'/'+slug+'-'+projectIcon.value.name;const up=await supabase.storage.from('mod-covers').upload(iconPath,projectIcon.value,{upsert:true});if(up.error)throw up.error;iconUrl=supabase.storage.from('mod-covers').getPublicUrl(iconPath).data.publicUrl}
+  const {data:project,error}=await supabase.from('mods').insert({author_id:user.value.id,title:form.value.title.trim(),slug,summary:form.value.summary.trim(),description:form.value.description,category:form.value.category,loader:form.value.loader,game_versions:form.value.gameVersions.split(',').map(x=>x.trim()).filter(Boolean),icon_url:iconUrl}).select().single()
+  if(error)throw error
+  const filePath=user.value.id+'/'+project.id+'/'+projectFile.value.name
+  const uploaded=await supabase.storage.from('mod-files').upload(filePath,projectFile.value);if(uploaded.error)throw uploaded.error
+  const release=await supabase.from('mod_versions').insert({mod_id:project.id,version_number:form.value.version.trim(),game_versions:form.value.gameVersions.split(',').map(x=>x.trim()).filter(Boolean),file_path:filePath,file_name:projectFile.value.name,file_size:projectFile.value.size,loader:form.value.loader,release_notes:form.value.releaseNotes})
+  if(release.error)throw release.error
+  publishMessage.value='Submitted for review. Your project appears publicly after approval.'
+  form.value={title:'',summary:'',description:'',category:'Technology',loader:'NeoForge',version:'1.0.0',gameVersions:'1.21.1',releaseNotes:''};projectFile.value=null;projectIcon.value=null;await loadMine()
+ }catch(e:any){publishMessage.value=e.message||'Upload failed.'}finally{publishBusy.value=false}
+}
+async function downloadRelease(p:Project,r?:Release){
+ const release=r||p.mod_versions?.[0]
+ if(!supabase||!release){notify('No downloadable release is available yet.');return}
+ const {data,error}=await supabase.storage.from('mod-files').createSignedUrl(release.file_path,90)
+ if(error){notify(error.message);return}
+ const a=document.createElement('a');a.href=data.signedUrl;a.download=release.file_name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove()
+}
+function keydown(e:KeyboardEvent){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('project-search')?.focus()}if(e.key==='Escape')showFilters.value=false}
+onMounted(async()=>{
+ await loadProjects()
+ if(supabase){const {data}=await supabase.auth.getSession();user.value=data.session?.user||null;username.value=user.value?.user_metadata?.username||user.value?.email?.split('@')[0]||'';const {data:listener}=supabase.auth.onAuthStateChange((_event,session)=>{user.value=session?.user||null;username.value=user.value?.user_metadata?.username||user.value?.email?.split('@')[0]||'';if(user.value)void loadMine()});authSubscription=listener.subscription}
+ const h=location.hash
+ if(h.startsWith('#/project/')){const found=projects.value.find(p=>p.slug===h.slice(10));if(found)openProject(found)}
+ else if(h==='#/login')page.value='login';else if(h==='#/publish')page.value='publish';else if(h==='#/dashboard')page.value='dashboard'
+ window.addEventListener('keydown',keydown)
+})
+onUnmounted(()=>{authSubscription?.unsubscribe();if(toastTimer)clearTimeout(toastTimer);window.removeEventListener('keydown',keydown)})
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0b0912] text-[#f4efff]">
-    <header class="sticky top-0 z-40 border-b border-white/[0.07] bg-[#0b0912]/90 backdrop-blur-xl">
-      <div class="mx-auto flex h-[76px] max-w-[1240px] items-center justify-between px-5 lg:px-8">
-        <button class="flex items-center gap-3" @click="navigate('home')">
-          <span class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-violet-300 to-violet-700 text-xl font-black text-white shadow-lg shadow-violet-900/40">M</span>
-          <span class="font-display text-[21px] font-bold tracking-tight">Mine<span class="text-violet-400">Cart</span><span class="ml-2 rounded border border-violet-400/30 px-1.5 py-0.5 align-middle text-[9px] font-bold tracking-[.18em] text-violet-300">BETA</span></span>
-        </button>
-        <nav class="hidden items-center gap-8 text-[13px] font-semibold text-[#a9a1b8] md:flex">
-          <button class="transition hover:text-white" @click="navigate('home')">Discover</button>
-          <a href="#categories" @click="navigate('home')" class="transition hover:text-white">Categories</a>
-          <button class="transition hover:text-white" @click="navigate('upload')">Publish a project</button>
-        </nav>
-        <div class="hidden items-center gap-3 md:flex">
-          <template v-if="user">
-            <button class="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#c8bfd5] hover:border-violet-400/50" @click="navigate('dashboard')">Dashboard</button>
-            <button class="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2.5 text-xs font-bold hover:bg-violet-400" @click="signOut"><CircleUserRound :size="15"/> {{ username || 'Account' }} · Sign out</button>
-          </template>
-          <template v-else>
-            <button class="text-xs font-bold text-[#c8bfd5] hover:text-white" @click="navigate('login')">Log in</button>
-            <button class="rounded-lg bg-violet-500 px-4 py-2.5 text-xs font-bold shadow-lg shadow-violet-900/30 hover:bg-violet-400" @click="navigate('login'); authMode='signup'">Create account <ArrowUpRight :size="14" class="inline"/></button>
-          </template>
-        </div>
-        <button class="rounded-lg border border-white/10 p-2 md:hidden" @click="mobileMenu=!mobileMenu"><Menu v-if="!mobileMenu"/><X v-else/></button>
-      </div>
-      <div v-if="mobileMenu" class="border-t border-white/10 bg-[#100d18] p-4 md:hidden">
-        <div class="flex flex-col gap-4 text-sm text-[#c9bfd4]">
-          <button @click="navigate('home')">Discover</button><button @click="navigate('upload')">Publish a project</button>
-          <button @click="navigate(user ? 'dashboard' : 'login')">{{ user ? 'Dashboard' : 'Log in / Sign up' }}</button>
-        </div>
-      </div>
-    </header>
+<div class="mc-shell min-h-screen text-white">
+ <header class="mc-topbar sticky top-0 z-50"><div class="mx-auto flex h-[74px] max-w-[1440px] items-center gap-7 px-5 lg:px-10">
+  <button class="flex shrink-0 items-center gap-3" @click="navigate('discover')"><span class="brand-mark"><Blocks :size="23"/></span><span class="font-display text-[22px] font-bold tracking-[-.06em]">mine<span class="text-violet-300">cart</span><span class="ml-2 text-[9px] font-bold tracking-[.2em] text-violet-300/70">BETA</span></span></button>
+  <nav class="hidden items-center gap-7 text-[13px] font-semibold text-[#aaa2bd] lg:flex"><button class="nav-link" :class="{active:page==='discover'}" @click="navigate('discover')"><Compass :size="15"/> Discover</button><button class="nav-link" :class="{active:page==='publish'}" @click="navigate('publish')"><Upload :size="15"/> Publish</button><button v-if="user" class="nav-link" :class="{active:page==='dashboard'}" @click="navigate('dashboard')"><Grid2X2 :size="15"/> Dashboard</button></nav>
+  <div class="ml-auto hidden max-w-[350px] flex-1 items-center md:flex"><div class="top-search"><Search :size="16"/><input v-model="search" placeholder="Search projects..."/><kbd>⌘ K</kbd></div></div>
+  <div class="ml-auto flex shrink-0 items-center gap-2 md:ml-0"><template v-if="user"><button class="hidden items-center gap-2 rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-[#d9d1e8] sm:flex" @click="navigate('dashboard')"><span class="avatar-mini">{{initials(username)}}</span>{{username}}</button><button class="icon-button" aria-label="Sign out" @click="signOut"><LogIn :size="17"/></button></template><template v-else><button class="hidden px-3 py-2.5 text-xs font-bold text-[#c7bfd5] sm:block" @click="navigate('login')">Log in</button><button class="primary-button !px-4 !py-2.5" @click="authMode='signup';navigate('login')">Get started <ArrowUpRight :size="14"/></button></template><button class="icon-button lg:hidden" aria-label="Menu" @click="mobileMenu=!mobileMenu"><Menu v-if="!mobileMenu"/><X v-else/></button></div>
+ </div><div v-if="mobileMenu" class="border-t border-white/10 bg-[#100c1a] p-4 lg:hidden"><div class="flex flex-col gap-1"><button class="mobile-link" @click="navigate('discover')">Discover</button><button class="mobile-link" @click="navigate('publish')">Publish a project</button><button class="mobile-link" @click="navigate(user?'dashboard':'login')">{{user?'Dashboard':'Log in / Sign up'}}</button></div></div></header>
 
-    <main v-if="page==='home'">
-      <section class="hero-grid relative overflow-hidden border-b border-white/[0.06]">
-        <div class="pointer-events-none absolute -right-40 top-0 h-[550px] w-[700px] rounded-full bg-violet-700/10 blur-[120px]"></div>
-        <div class="relative mx-auto grid min-h-[570px] max-w-[1240px] items-center gap-10 px-5 py-20 lg:grid-cols-[1.05fr_.95fr] lg:px-8">
-          <div>
-            <div class="mb-7 inline-flex items-center gap-2 rounded-full border border-violet-400/25 bg-violet-400/[0.08] px-3 py-2 text-[10px] font-bold tracking-[.2em] text-violet-200"><Sparkles :size="13"/> THE MODDING UNIVERSE, CONNECTED</div>
-            <h1 class="font-display text-[clamp(3.6rem,7vw,6.6rem)] font-bold leading-[.94] tracking-[-.075em]">Your next<br/><span class="bg-gradient-to-r from-violet-200 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">adventure</span><br/>starts here.</h1>
-            <p class="mt-7 max-w-[490px] text-[15px] leading-8 text-[#a79eb5]">Discover the mods that make Minecraft yours. Explore community creations, find your perfect setup, and share what you build.</p>
-            <div class="mt-9 flex flex-wrap gap-3">
-              <a href="#browse" class="inline-flex items-center gap-3 rounded-lg bg-violet-500 px-6 py-4 text-sm font-bold shadow-xl shadow-violet-950/40 transition hover:-translate-y-0.5 hover:bg-violet-400">Explore mods <ArrowRight :size="17"/></a>
-              <button class="inline-flex items-center gap-3 rounded-lg border border-white/15 bg-white/[0.03] px-6 py-4 text-sm font-bold text-[#e3d9ef] transition hover:border-violet-300/50" @click="navigate('upload')"><CloudUpload :size="17"/> Publish your work</button>
-            </div>
-            <div class="mt-8 flex items-center gap-3 text-[11px] text-[#81788e]"><span class="flex -space-x-2"><i class="h-6 w-6 rounded-full border-2 border-[#0b0912] bg-violet-400"></i><i class="h-6 w-6 rounded-full border-2 border-[#0b0912] bg-fuchsia-400"></i><i class="h-6 w-6 rounded-full border-2 border-[#0b0912] bg-cyan-400"></i></span> Made by players. For players.</div>
-          </div>
-          <div class="relative mx-auto hidden h-[410px] w-full max-w-[500px] items-center justify-center lg:flex">
-            <div class="absolute h-[340px] w-[340px] rounded-full border border-violet-300/15 shadow-[0_0_100px_rgba(139,92,246,.12)]"></div>
-            <div class="absolute h-[270px] w-[420px] rotate-[-24deg] rounded-[50%] border border-violet-300/20"></div>
-            <div class="relative grid h-52 w-52 rotate-[-8deg] place-items-center rounded-[2.5rem] border border-white/20 bg-gradient-to-br from-violet-300 via-violet-600 to-indigo-900 text-8xl font-black shadow-[24px_28px_0_#321d5f,0_45px_90px_rgba(124,58,237,.45)]">M</div>
-            <div class="absolute right-0 top-16 rounded-xl border border-white/10 bg-[#191426]/90 px-4 py-3 text-xs text-violet-100 shadow-2xl"><Sparkles class="mr-2 inline text-violet-300" :size="14"/> Fresh builds, every day</div>
-            <div class="absolute bottom-12 left-0 rounded-xl border border-white/10 bg-[#191426]/90 px-4 py-3 text-xs text-[#c5b9d4] shadow-2xl"><Zap class="mr-2 inline text-amber-300" :size="14"/> Made for your next world</div>
-          </div>
-        </div>
-        <div class="mx-auto flex max-w-[1240px] flex-wrap gap-x-12 gap-y-3 border-t border-white/[0.06] px-5 py-6 text-[10px] font-extrabold tracking-[.2em] text-[#5f586b] lg:px-8"><span>MODS</span><span>MODPACKS</span><span>RESOURCE PACKS</span><span>SHADERS</span><span>DATAPACKS</span></div>
-      </section>
+ <main v-if="page==='discover'">
+  <section class="hero-wrap"><div class="hero-noise"></div><div class="hero-orb orb-one"></div><div class="hero-orb orb-two"></div><div class="relative mx-auto grid max-w-[1440px] items-center gap-12 px-5 pb-20 pt-20 md:pt-28 lg:grid-cols-[1.05fr_.95fr] lg:px-10 lg:pb-28">
+   <div class="relative z-10"><div class="eyebrow"><span class="eyebrow-dot"></span> THE OPEN MODDING PLATFORM <span class="eyebrow-line"></span><span>01 / DISCOVER</span></div><h1 class="hero-title mt-8">Make your<br/><span>next world</span><br/>unforgettable<span class="text-violet-300">.</span></h1><p class="mt-7 max-w-[540px] text-[15px] leading-8 text-[#b7aec8]">One home for the creations that transform Minecraft. Discover mods, resource packs, shaders and modpacks made by the community.</p><div class="mt-9 flex flex-wrap gap-3"><button class="primary-button" @click="document.getElementById('library')?.scrollIntoView({behavior:'smooth'})">Explore the library <ArrowRight :size="17"/></button><button class="secondary-button" @click="navigate('publish')"><Plus :size="17"/> Share your creation</button></div><div class="mt-12 flex flex-wrap gap-x-9 gap-y-4 border-t border-white/[.09] pt-6"><div><div class="font-display text-2xl font-bold">{{fmt(projects.length)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Approved projects</div></div><div><div class="font-display text-2xl font-bold">{{fmt(downloads)}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Recorded downloads</div></div><div><div class="flex items-center gap-2 font-display text-2xl font-bold"><span class="h-2 w-2 rounded-full" :class="backendReady?'bg-emerald-400':'bg-amber-300'"></span>{{backendReady?'Connected':'Preview'}}</div><div class="mt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-[#817990]">Platform status</div></div></div></div>
+   <div class="hero-art relative mx-auto hidden h-[470px] w-full max-w-[600px] items-center justify-center lg:flex"><div class="art-ring ring-a"></div><div class="art-ring ring-b"></div><div class="art-ring ring-c"></div><div class="art-core"><Blocks :size="84" stroke-width="1.25"/></div><div class="art-chip chip-top"><span class="chip-icon"><Package :size="16"/></span><span><b>Mods & add-ons</b><small>Build your own experience</small></span></div><div class="art-chip chip-left"><span class="chip-icon"><Sparkles :size="16"/></span><span><b>Made by creators</b><small>Community powered</small></span></div><div class="art-chip chip-right"><span class="chip-icon"><ShieldCheck :size="16"/></span><span><b>Open discovery</b><small>Find your next favorite</small></span></div><div class="art-caption">MINECART <span>CREATOR ECOSYSTEM / 2026</span></div></div>
+  </div></section>
 
-      <section id="browse" class="mx-auto max-w-[1240px] px-5 py-24 lg:px-8">
-        <div class="flex flex-wrap items-end justify-between gap-5"><div><div class="text-[10px] font-extrabold tracking-[.23em] text-violet-300">THE COMMUNITY LIBRARY</div><h2 class="mt-3 font-display text-4xl font-bold tracking-tight md:text-5xl">Find your <span class="text-violet-400">next favorite.</span></h2><p class="mt-3 text-sm text-[#93899f]">Hand-picked projects and community favorites, all in one place.</p></div><div class="flex items-center gap-2 text-xs text-[#8f849c]"><span class="h-2 w-2 rounded-full" :class="backendReady ? 'bg-emerald-400' : 'bg-amber-400'"></span>{{ backendReady ? 'Live community library' : 'Preview catalog' }}</div></div>
-        <div class="mt-9 flex h-14 items-center gap-3 rounded-xl border border-white/10 bg-[#15111e] px-4 text-[#847a92] focus-within:border-violet-400/60"><Search :size="19"/><input v-model="search" class="h-full w-full bg-transparent text-sm text-white outline-none placeholder:text-[#71687e]" placeholder="Search mods, creators, loaders..."/><kbd class="hidden rounded border border-white/10 px-2 py-1 text-[10px] sm:block">⌘ K</kbd></div>
-        <div class="mt-4 flex flex-wrap gap-2"><button v-for="cat in categories" :key="cat" @click="activeCategory=cat" class="rounded-lg border px-3.5 py-2 text-[11px] font-semibold transition" :class="activeCategory===cat ? 'border-violet-400/60 bg-violet-500/15 text-violet-200' : 'border-white/10 bg-[#14111b] text-[#9b91a7] hover:border-white/25'">{{cat}}</button></div>
-        <div class="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <article v-for="(mod,i) in filteredMods" :key="mod.id" @click="openMod(mod)" class="group cursor-pointer rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#191522] to-[#100d17] p-5 transition duration-200 hover:-translate-y-1 hover:border-violet-400/40">
-            <div class="flex items-start justify-between"><div class="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-gradient-to-br text-xl font-black" :class="['from-violet-300 to-violet-700','from-sky-300 to-blue-700','from-emerald-300 to-teal-700','from-amber-200 to-orange-700','from-pink-300 to-rose-700','from-cyan-300 to-cyan-800'][i%6]"><img v-if="mod.icon_url" :src="mod.icon_url" class="h-full w-full object-cover"/><span v-else>{{['✧','◈','✦','⌘','◇','◉'][i%6]}}</span></div><span class="rounded-md border border-white/10 px-2 py-1 text-[9px] font-bold text-[#a99eb6]">{{mod.loader}}</span></div>
-            <div class="mt-5 text-[9px] font-extrabold uppercase tracking-[.18em] text-violet-300">{{mod.category}}</div><h3 class="mt-2 flex items-center justify-between font-display text-lg font-semibold">{{mod.title}}<ArrowUpRight :size="16" class="text-[#71677d] transition group-hover:text-violet-300"/></h3><p class="mt-2 min-h-[42px] text-xs leading-6 text-[#968ca2]">{{mod.summary}}</p>
-            <div class="mt-5 flex items-center justify-between border-t border-white/[0.07] pt-4 text-[10px] text-[#81788e]"><span>by {{mod.author}}</span><span class="flex items-center gap-1.5 text-[#bcb0cb]"><Download :size="13"/> {{formatDownloads(mod.downloads)}}</span></div>
-          </article>
-        </div>
-        <div v-if="!filteredMods.length" class="rounded-xl border border-white/10 py-20 text-center text-sm text-[#8f849c]">No projects found. Try another search.</div>
-      </section>
-      <section id="categories" class="border-y border-white/[0.06] bg-[#100d17]"><div class="mx-auto max-w-[1240px] px-5 py-20 lg:px-8"><div class="text-[10px] font-extrabold tracking-[.23em] text-violet-300">EXPLORE YOUR WAY</div><h2 class="mt-3 font-display text-4xl font-bold tracking-tight">Every world has a <span class="text-violet-400">style.</span></h2><div class="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4"><button v-for="(cat,i) in categories.slice(1)" :key="cat" @click="activeCategory=cat;document.getElementById('browse')?.scrollIntoView({behavior:'smooth'})" class="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-[#171320] p-4 text-left text-xs font-semibold text-[#ded5e9] transition hover:border-violet-400/40"><span class="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/15 text-lg text-violet-200">{{['⚙','✦','✧','◈','⌘','▦','◇','◉'][i]}}</span>{{cat}}<ArrowUpRight :size="14" class="ml-auto text-[#756b81]"/></button></div></div></section>
-      <section class="relative overflow-hidden bg-[#151020] py-20"><div class="absolute right-0 top-0 h-full w-1/2 bg-[radial-gradient(ellipse_at_center,rgba(124,58,237,.18),transparent_65%)]"></div><div class="relative mx-auto max-w-[1240px] px-5 lg:px-8"><div class="text-[10px] font-extrabold tracking-[.23em] text-violet-300">BUILT FOR CREATORS</div><h2 class="mt-4 font-display text-5xl font-bold leading-tight tracking-tight">Made something<br/>worth sharing?</h2><p class="mt-4 max-w-md text-sm leading-7 text-[#a49aae]">Give your project a home. Publish releases, reach players, and keep your community up to date.</p><button @click="navigate('upload')" class="mt-7 inline-flex items-center gap-3 rounded-lg bg-violet-500 px-6 py-4 text-sm font-bold hover:bg-violet-400">Become a creator <ArrowRight :size="17"/></button></div></section>
-    </main>
+  <section id="library" class="mx-auto max-w-[1440px] px-5 pb-24 pt-16 lg:px-10 lg:pt-20">
+   <div class="flex flex-wrap items-end justify-between gap-5"><div><div class="section-kicker">THE LIBRARY</div><h2 class="section-title mt-3">Find your <span>next favorite.</span></h2><p class="mt-3 max-w-xl text-sm leading-7 text-[#938aa4]">Explore real community releases. Every project shown here comes from the MineCart database.</p></div><div class="flex items-center gap-2 rounded-full border border-white/10 bg-white/[.025] px-3 py-2 text-[11px] text-[#a79db8]"><span class="h-1.5 w-1.5 rounded-full" :class="backendReady?'bg-emerald-400':'bg-amber-300'"></span>{{backendReady?'Live database':'Backend not connected'}}</div></div>
+   <div class="mt-9 flex flex-col gap-3 lg:flex-row"><div class="library-search"><Search :size="18"/><input id="project-search" v-model="search" placeholder="Search by project, creator, loader or keyword..."/><button v-if="search" @click="search=''" aria-label="Clear search"><X :size="16"/></button></div><button class="filter-toggle" @click="showFilters=!showFilters"><SlidersHorizontal :size="16"/> Filters <ChevronDown :size="15" :class="showFilters?'rotate-180':''"/></button><label class="sort-select"><span>Sort by</span><select v-model="sort"><option>Popular</option><option>Recently updated</option><option>Name</option></select><ChevronDown :size="14"/></label></div>
+   <div class="mt-4 flex flex-wrap gap-2"><button v-for="c in categories" :key="c" class="category-pill" :class="{selected:category===c}" @click="category=c">{{c}}</button></div>
+   <div v-if="showFilters" class="filter-panel mt-4"><div class="flex flex-wrap items-center gap-3"><span class="text-xs font-semibold text-[#bdb4cc]">Loader</span><button v-for="l in loaders" :key="l" class="category-pill" :class="{selected:loader===l}" @click="loader=l">{{l}}</button><button class="ml-auto text-xs font-semibold text-violet-300" @click="loader='Any loader';category='All projects'">Reset</button></div></div>
+   <div class="mt-8 flex items-center justify-between"><div class="text-xs text-[#8e859e]"><b class="text-white">{{visible.length}}</b> projects found</div><button class="flex items-center gap-1.5 text-xs font-semibold text-violet-300" @click="navigate('publish')"><Plus :size="14"/> Publish a project</button></div>
+   <div v-if="loading" class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><div v-for="n in 6" :key="n" class="skeleton-card"><div class="skeleton h-12 w-12 rounded-xl"></div><div class="skeleton mt-6 h-3 w-24"></div><div class="skeleton mt-3 h-5 w-3/4"></div><div class="skeleton mt-3 h-3 w-full"></div></div></div>
+   <div v-else-if="loadError" class="empty-state mt-7"><div class="empty-icon"><CircleHelp :size="25"/></div><h3>We couldn't load the library</h3><p>{{loadError}}</p><button class="primary-button mt-5" @click="loadProjects">Try again <ArrowRight :size="15"/></button></div>
+   <div v-else-if="!backendReady" class="empty-state mt-7"><div class="empty-icon"><Layers3 :size="25"/></div><h3>Your library starts here.</h3><p>Connect a Supabase project to load approved community releases. No sample projects or invented download counts are displayed.</p><a class="text-link mt-4" href="https://github.com/DeathAmir/MineCart#setup" target="_blank" rel="noreferrer">Read the setup guide <ExternalLink :size="13"/></a></div>
+   <div v-else-if="!visible.length" class="empty-state mt-7"><div class="empty-icon"><Search :size="25"/></div><h3>{{search||category!=='All projects'?'No matching projects':'The library is waiting for its first release.'}}</h3><p>{{search||category!=='All projects'?'Try a different search or clear your filters.':'Be the first creator to publish a project. Approved releases will appear here automatically.'}}</p><button v-if="search||category!=='All projects'||loader!=='Any loader'" class="secondary-button mt-5" @click="search='';category='All projects';loader='Any loader'">Clear filters</button><button v-else class="primary-button mt-5" @click="navigate('publish')">Publish the first project <ArrowRight :size="15"/></button></div>
+   <div v-else class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><article v-for="p in visible" :key="p.id" class="project-card" @click="openProject(p)"><div class="flex items-start justify-between gap-3"><div class="project-icon"><img v-if="p.icon_url" :src="p.icon_url" :alt="p.title+' icon'"/><span v-else>{{initials(p.title)}}</span></div><span class="loader-tag">{{p.loader}}</span></div><div class="mt-6 text-[10px] font-bold uppercase tracking-[.18em] text-violet-300">{{p.category}}</div><h3 class="mt-2 flex items-center justify-between gap-3 font-display text-[19px] font-semibold">{{p.title}}<ArrowUpRight :size="17" class="shrink-0 text-[#716780]"/></h3><p class="mt-2 line-clamp-2 min-h-[44px] text-[12px] leading-6 text-[#9b92a9]">{{p.summary}}</p><div class="mt-6 flex items-center justify-between border-t border-white/[.07] pt-4 text-[10px] text-[#8c829a]"><span class="flex items-center gap-2"><span class="creator-dot">{{initials(p.author)}}</span>{{p.author}}</span><span class="flex items-center gap-1"><Download :size="13"/>{{fmt(p.downloads)}}</span></div></article></div>
+  </section>
+  <section class="mx-auto max-w-[1440px] px-5 pb-24 lg:px-10"><div class="creator-banner"><div class="relative z-10 max-w-2xl"><div class="section-kicker">FOR THE BUILDERS</div><h2 class="mt-3 font-display text-3xl font-bold md:text-4xl">Your next creation<br/>belongs <span class="text-violet-300">out there.</span></h2><p class="mt-4 max-w-lg text-sm leading-7 text-[#b1a7c1]">Give your project a home. Publish releases, manage versions and share your work with players.</p><button class="primary-button mt-7" @click="navigate('publish')">Open creator studio <ArrowRight :size="16"/></button></div><div class="banner-art"><Blocks :size="150" stroke-width=".8"/></div></div></section>
+ </main>
 
-    <main v-else-if="page==='login'" class="grid min-h-[calc(100vh-150px)] place-items-center bg-[radial-gradient(ellipse_at_50%_30%,rgba(124,58,237,.14),transparent_45%)] px-5 py-16">
-      <div class="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[#15111e] p-8 shadow-2xl shadow-black/30">
-        <button @click="navigate('home')" class="mb-8 flex items-center gap-2 text-xs text-[#9b91a7] hover:text-white">← Back to MineCart</button>
-        <div class="text-[10px] font-extrabold tracking-[.22em] text-violet-300">WELCOME TO THE COMMUNITY</div><h1 class="mt-3 font-display text-4xl font-bold">{{authMode==='login'?'Welcome back.':'Create your account.'}}</h1><p class="mt-3 text-xs leading-6 text-[#a49aae]">Sign in to publish projects, manage releases and follow your favorite creators.</p>
-        <form class="mt-8 space-y-4" @submit.prevent="handleAuth">
-          <label v-if="authMode==='signup'" class="block text-xs font-semibold text-[#c9bfd4]">Username<input v-model="username" required minlength="3" class="mt-2 w-full rounded-lg border border-white/10 bg-[#100d17] px-4 py-3 text-sm outline-none focus:border-violet-400" placeholder="Your creator name"/></label>
-          <label class="block text-xs font-semibold text-[#c9bfd4]">Email<input v-model="email" required type="email" class="mt-2 w-full rounded-lg border border-white/10 bg-[#100d17] px-4 py-3 text-sm outline-none focus:border-violet-400" placeholder="you@example.com"/></label>
-          <label class="block text-xs font-semibold text-[#c9bfd4]">Password<input v-model="password" required type="password" minlength="6" class="mt-2 w-full rounded-lg border border-white/10 bg-[#100d17] px-4 py-3 text-sm outline-none focus:border-violet-400" placeholder="At least 6 characters"/></label>
-          <p v-if="authMessage" class="rounded-lg border border-violet-400/20 bg-violet-400/10 p-3 text-xs text-violet-200">{{authMessage}}</p>
-          <button :disabled="authBusy" class="flex w-full items-center justify-center gap-2 rounded-lg bg-violet-500 py-3.5 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">{{authBusy?'Please wait…':authMode==='login'?'Log in':'Create account'}} <ArrowRight :size="16"/></button>
-        </form>
-        <p class="mt-6 text-center text-xs text-[#8f849c]">{{authMode==='login'?'New to MineCart?':'Already have an account?'}} <button class="font-bold text-violet-300" @click="authMode=authMode==='login'?'signup':'login';authMessage=''">{{authMode==='login'?'Create an account':'Log in'}}</button></p>
-        <p v-if="!backendReady" class="mt-5 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3 text-[10px] leading-5 text-amber-100/80">Supabase is not configured yet. Add the two public Supabase environment values in GitHub Actions to activate accounts.</p>
-      </div>
-    </main>
+ <main v-else-if="page==='login'" class="subpage-wrap"><div class="auth-card"><div class="brand-mark mx-auto"><Blocks :size="24"/></div><div class="section-kicker mt-7 justify-center">WELCOME TO MINECART</div><h1 class="mt-3 text-center font-display text-3xl font-bold">{{authMode==='login'?'Welcome back.':'Join the creators.'}}</h1><p class="mt-3 text-center text-sm leading-6 text-[#968ca5]">{{authMode==='login'?'Sign in to manage your projects and releases.':'Create an account and share what you build.'}}</p><form class="mt-8 space-y-4" @submit.prevent="submitAuth"><label v-if="authMode==='signup'" class="form-label">Creator name<input v-model="username" class="form-input mt-2" required minlength="3" maxlength="24" placeholder="Your name"/></label><label class="form-label">Email address<input v-model="email" class="form-input mt-2" type="email" required placeholder="you@example.com"/></label><label class="form-label">Password<input v-model="password" class="form-input mt-2" type="password" required minlength="8" placeholder="At least 8 characters"/></label><p v-if="authMessage" class="notice">{{authMessage}}</p><button class="primary-button w-full justify-center" :disabled="authBusy">{{authBusy?'Please wait…':authMode==='login'?'Sign in':'Create account'} <ArrowRight :size="16"/></button></form><p class="mt-6 text-center text-xs text-[#92889f]">{{authMode==='login'?'New to MineCart?':'Already have an account?'}} <button class="font-bold text-violet-300" @click="authMode=authMode==='login'?'signup':'login';authMessage=''">{{authMode==='login'?'Create an account':'Sign in'}}</button></p><p v-if="!backendReady" class="notice mt-5">Supabase is not connected. Add the project URL and publishable key in repository settings.</p></div></main>
 
-    <main v-else-if="page==='upload'" class="mx-auto max-w-[960px] px-5 py-14 lg:px-8">
-      <button @click="navigate('home')" class="mb-8 flex items-center gap-2 text-xs text-[#9b91a7] hover:text-white">← Back to discovery</button>
-      <div class="text-[10px] font-extrabold tracking-[.22em] text-violet-300">CREATOR WORKSPACE</div><h1 class="mt-3 font-display text-5xl font-bold tracking-tight">Publish your <span class="text-violet-400">project.</span></h1><p class="mt-3 text-sm text-[#a49aae]">Share your work with the MineCart community. Your first release will be reviewed before it goes live.</p>
-      <div class="mt-9 rounded-2xl border border-white/10 bg-[#15111e] p-6 md:p-8">
-        <h2 class="mb-6 flex items-center gap-2 font-display text-lg font-semibold"><Package :size="19" class="text-violet-300"/> Project information</h2>
-        <div class="grid gap-5 md:grid-cols-2">
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Project name<input v-model="form.title" class="field mt-2" placeholder="e.g. Better Adventures"/></label>
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Short description<input v-model="form.summary" maxlength="160" class="field mt-2" placeholder="What makes your project special?"/></label>
-          <label class="text-xs font-semibold text-[#c9bfd4]">Category<select v-model="form.category" class="field mt-2"><option v-for="c in categories.slice(1)" :key="c">{{c}}</option></select></label>
-          <label class="text-xs font-semibold text-[#c9bfd4]">Mod loader<select v-model="form.loader" class="field mt-2"><option>NeoForge</option><option>Forge</option><option>Fabric</option><option>Quilt</option><option>Quilt</option><option>Resource Pack</option><option>Datapack</option></select></label>
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Full description<textarea v-model="form.description" rows="4" class="field mt-2" placeholder="Tell players about features, dependencies and installation…"></textarea></label>
-          <label class="text-xs font-semibold text-[#c9bfd4]">Minecraft versions<input v-model="form.gameVersions" class="field mt-2" placeholder="1.21.1, 1.21.2"/></label>
-          <label class="text-xs font-semibold text-[#c9bfd4]">Release version<input v-model="form.version" class="field mt-2" placeholder="1.0.0"/></label>
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Release notes<textarea v-model="form.releaseNotes" rows="3" class="field mt-2" placeholder="What's new in this release?"></textarea></label>
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Project icon (optional)<input type="file" accept="image/png,image/jpeg,image/webp" class="mt-2 block w-full text-xs text-[#a49aae] file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/20 file:px-4 file:py-2 file:text-xs file:font-bold file:text-violet-200" @change="projectIcon=($event.target as HTMLInputElement).files?.[0]||null"/></label>
-          <label class="text-xs font-semibold text-[#c9bfd4] md:col-span-2">Mod file (.jar or .zip)<input type="file" accept=".jar,.zip" required class="mt-2 block w-full rounded-xl border border-dashed border-violet-300/30 bg-violet-400/[0.05] p-5 text-xs text-[#a49aae] file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500 file:px-4 file:py-2 file:text-xs file:font-bold file:text-white" @change="projectFile=($event.target as HTMLInputElement).files?.[0]||null"/><span v-if="projectFile" class="mt-2 block text-[10px] text-emerald-300">Selected: {{projectFile.name}} · {{formatDownloads(projectFile.size)}} bytes</span></label>
-        </div>
-        <p v-if="uploadMessage" class="mt-5 rounded-lg border border-violet-400/20 bg-violet-400/10 p-3 text-xs text-violet-100">{{uploadMessage}}</p>
-        <div class="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.07] pt-6"><span class="text-[10px] leading-5 text-[#81788e]">By publishing, you confirm that you own or have permission to share this content.</span><button @click="publishProject" :disabled="uploadBusy" class="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-xs font-bold hover:bg-violet-400 disabled:opacity-50"><Upload :size="15"/> {{uploadBusy?'Uploading…':'Submit project'}}</button></div>
-      </div>
-      <div v-if="!user" class="mt-5 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] p-4 text-xs text-amber-100/80">You need to <button class="font-bold underline" @click="navigate('login')">sign in</button> before submitting a project.</div>
-    </main>
+ <main v-else-if="page==='publish'" class="subpage-wrap !max-w-[1000px]"><div class="mb-8"><button class="back-link" @click="navigate('discover')"><ArrowLeft :size="15"/> Back to discovery</button><div class="section-kicker mt-8">CREATOR STUDIO / 01</div><h1 class="mt-3 font-display text-4xl font-bold md:text-5xl">Publish a <span class="text-violet-300">project.</span></h1><p class="mt-3 max-w-xl text-sm leading-7 text-[#9b92a9]">Your submission stays private until it passes review.</p></div><div class="form-panel"><div class="mb-7 flex items-center gap-3 border-b border-white/[.08] pb-5"><div class="empty-icon !m-0 !h-10 !w-10"><Package :size="19"/></div><div><h2 class="font-display text-lg font-semibold">Project details</h2><p class="mt-1 text-[11px] text-[#8e859d]">Tell the community what you've built.</p></div></div><form class="grid gap-5 md:grid-cols-2" @submit.prevent="publishProject"><label class="form-label md:col-span-2">Project name<input v-model="form.title" class="form-input mt-2" required maxlength="80" placeholder="Name your project"/></label><label class="form-label md:col-span-2">Short description<input v-model="form.summary" class="form-input mt-2" required maxlength="160" placeholder="A clear one-line summary"/></label><label class="form-label">Category<select v-model="form.category" class="form-input mt-2"><option v-for="c in categories.slice(1)" :key="c">{{c}}</option></select></label><label class="form-label">Loader<select v-model="form.loader" class="form-input mt-2"><option v-for="l in loaders.slice(1)" :key="l">{{l}}</option></select></label><label class="form-label md:col-span-2">Full description<textarea v-model="form.description" class="form-input mt-2 min-h-32 resize-y" maxlength="12000" placeholder="Features, dependencies, installation instructions…"></textarea></label><label class="form-label">Minecraft versions<input v-model="form.gameVersions" class="form-input mt-2" placeholder="1.21.1, 1.21.2"/></label><label class="form-label">Release version<input v-model="form.version" class="form-input mt-2" required maxlength="32" placeholder="1.0.0"/></label><label class="form-label md:col-span-2">Release notes<textarea v-model="form.releaseNotes" class="form-input mt-2 min-h-24 resize-y" placeholder="What's new in this version?"></textarea></label><label class="form-label md:col-span-2">Project icon <span class="font-normal text-[#827990]">(optional · PNG/JPG/WebP · max 5 MB)</span><input type="file" accept="image/png,image/jpeg,image/webp" class="file-input mt-2" @change="projectIcon=($event.target as HTMLInputElement).files?.[0]||null"/></label><label class="form-label md:col-span-2">Release file <span class="font-normal text-[#827990]">(.jar/.zip · max 250 MB)</span><input type="file" accept=".jar,.zip" required class="file-input mt-2" @change="projectFile=($event.target as HTMLInputElement).files?.[0]||null"/><span v-if="projectFile" class="mt-2 block text-[11px] text-emerald-300">{{projectFile.name}} · {{(projectFile.size/1048576).toFixed(2)}} MB</span></label><p v-if="publishMessage" class="notice md:col-span-2">{{publishMessage}}</p><div class="flex flex-wrap items-center justify-between gap-4 border-t border-white/[.08] pt-5 md:col-span-2"><span class="max-w-md text-[10px] leading-5 text-[#827990]">Only upload files you own or have permission to distribute. Submissions are reviewed before publication.</span><button class="primary-button" :disabled="publishBusy||!user">{{publishBusy?'Uploading…':'Submit for review'} <ArrowRight :size="16"/></button></div></form></div><div v-if="!user" class="notice mt-4">You need an account to publish. <button class="font-bold text-violet-300 underline" @click="navigate('login')">Sign in</button></div></main>
 
-    <main v-else-if="page==='dashboard'" class="mx-auto max-w-[1100px] px-5 py-14 lg:px-8">
-      <div class="flex flex-wrap items-end justify-between gap-4"><div><div class="text-[10px] font-extrabold tracking-[.22em] text-violet-300">YOUR CREATOR SPACE</div><h1 class="mt-3 font-display text-4xl font-bold">Dashboard</h1><p class="mt-2 text-xs text-[#a49aae]">Manage your projects and releases.</p></div><button @click="navigate('upload')" class="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-3 text-xs font-bold"><Plus :size="15"/> New project</button></div>
-      <div class="mt-8 grid gap-3 sm:grid-cols-3"><div class="rounded-xl border border-white/10 bg-[#15111e] p-5"><Layers3 class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{myMods.length}}</div><div class="mt-1 text-[10px] text-[#93899f]">Total projects</div></div><div class="rounded-xl border border-white/10 bg-[#15111e] p-5"><Download class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{formatDownloads(myMods.reduce((n,m)=>n+m.downloads,0))}}</div><div class="mt-1 text-[10px] text-[#93899f]">Total downloads</div></div><div class="rounded-xl border border-white/10 bg-[#15111e] p-5"><ShieldCheck class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{myMods.filter(m=>(m as any).status==='approved').length}}</div><div class="mt-1 text-[10px] text-[#93899f]">Approved projects</div></div></div>
-      <div class="mt-10 overflow-hidden rounded-xl border border-white/10 bg-[#15111e]"><div class="border-b border-white/10 px-5 py-4 font-display font-semibold">Your projects</div><div v-if="!myMods.length" class="p-12 text-center text-xs text-[#93899f]">No projects yet. Publish your first creation.</div><div v-for="mod in myMods" :key="mod.id" class="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] px-5 py-4 last:border-0"><div><div class="font-semibold">{{mod.title}}</div><div class="mt-1 text-[10px] text-[#8d8299]">{{mod.loader}} · {{formatDownloads(mod.downloads)}} downloads</div></div><span class="rounded-md px-2.5 py-1 text-[9px] font-bold" :class="(mod as any).status==='approved'?'bg-emerald-400/10 text-emerald-300':(mod as any).status==='rejected'?'bg-rose-400/10 text-rose-300':'bg-amber-300/10 text-amber-200'">{{(mod as any).status || 'pending'}}</span></div></div>
-    </main>
+ <main v-else-if="page==='dashboard'" class="mx-auto min-h-[70vh] max-w-[1200px] px-5 py-14 lg:px-10"><div class="flex flex-wrap items-end justify-between gap-4"><div><div class="section-kicker">CREATOR STUDIO / 02</div><h1 class="mt-3 font-display text-4xl font-bold">Your workspace.</h1><p class="mt-2 text-sm text-[#938aa4]">Manage projects and review status.</p></div><button class="primary-button" @click="navigate('publish')"><Plus :size="16"/> New project</button></div><div class="mt-9 grid gap-3 sm:grid-cols-3"><div class="stat-card"><Layers3 class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{mine.length}}</div><div class="mt-1 text-[10px] uppercase tracking-wider text-[#8e859d]">Your projects</div></div><div class="stat-card"><Download class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{fmt(mine.reduce((n,p)=>n+p.downloads,0))}}</div><div class="mt-1 text-[10px] uppercase tracking-wider text-[#8e859d]">Recorded downloads</div></div><div class="stat-card"><BadgeCheck class="text-violet-300"/><div class="mt-4 font-display text-3xl font-bold">{{mine.filter(p=>p.status==='approved').length}}</div><div class="mt-1 text-[10px] uppercase tracking-wider text-[#8e859d]">Approved projects</div></div></div><div class="mt-9 overflow-hidden rounded-2xl border border-white/[.08] bg-[#120f1b]"><div class="flex items-center justify-between border-b border-white/[.08] px-5 py-4"><h2 class="font-display font-semibold">Your submissions</h2><span class="text-[10px] text-[#8e859d]">{{mine.length}} total</span></div><div v-if="!mine.length" class="empty-state !border-0"><div class="empty-icon"><Package :size="24"/></div><h3>No projects yet</h3><p>Your published and pending projects will appear here.</p><button class="primary-button mt-5" @click="navigate('publish')">Create your first project <ArrowRight :size="15"/></button></div><div v-for="p in mine" :key="p.id" class="flex flex-wrap items-center justify-between gap-4 border-b border-white/[.06] px-5 py-4 last:border-0"><div class="flex items-center gap-3"><div class="project-icon !h-10 !w-10">{{initials(p.title)}}</div><div><div class="text-sm font-semibold">{{p.title}}</div><div class="mt-1 text-[10px] text-[#8e859d]">{{p.loader}} · {{p.mod_versions?.length||0}} releases</div></div></div><span class="status-pill" :class="p.status">{{p.status||'pending review'}}</span></div></div></main>
 
-    <main v-else-if="page==='detail' && selectedMod" class="mx-auto max-w-[1100px] px-5 py-14 lg:px-8">
-      <button @click="navigate('home')" class="mb-9 flex items-center gap-2 text-xs text-[#9b91a7] hover:text-white">← Back to discovery</button>
-      <div class="rounded-2xl border border-white/10 bg-gradient-to-br from-[#1b1528] to-[#100d17] p-7 md:p-10">
-        <div class="flex flex-wrap items-start gap-5"><div class="grid h-20 w-20 place-items-center rounded-2xl bg-gradient-to-br from-violet-300 to-violet-800 text-4xl font-black"><img v-if="selectedMod.icon_url" :src="selectedMod.icon_url" class="h-full w-full rounded-2xl object-cover"/><span v-else>✦</span></div><div class="min-w-0 flex-1"><div class="text-[10px] font-bold uppercase tracking-[.2em] text-violet-300">{{selectedMod.category}} · {{selectedMod.loader}}</div><h1 class="mt-2 font-display text-4xl font-bold">{{selectedMod.title}}</h1><p class="mt-2 text-xs text-[#a49aae]">By {{selectedMod.author}} · {{formatDownloads(selectedMod.downloads)}} downloads</p></div><button @click="downloadVersion(selectedMod)" class="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-xs font-bold"><ArrowDownToLine :size="16"/> Download</button></div>
-        <p class="mt-8 max-w-3xl text-sm leading-8 text-[#c0b6cd]">{{selectedMod.description || selectedMod.summary}}</p>
-        <div class="mt-8 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3"><div><div class="text-[9px] uppercase tracking-widest text-[#81788e]">Mod loader</div><div class="mt-1 text-sm font-semibold">{{selectedMod.loader}}</div></div><div><div class="text-[9px] uppercase tracking-widest text-[#81788e]">Category</div><div class="mt-1 text-sm font-semibold">{{selectedMod.category}}</div></div><div><div class="text-[9px] uppercase tracking-widest text-[#81788e]">Game versions</div><div class="mt-1 text-sm font-semibold">{{selectedMod.game_versions?.join(', ') || 'See release notes'}}</div></div></div>
-      </div>
-      <div class="mt-8 rounded-xl border border-white/10 bg-[#15111e] p-6"><h2 class="font-display text-lg font-semibold">Versions</h2><div v-if="!selectedMod.mod_versions?.length" class="mt-5 text-xs text-[#93899f]">Release files will appear here once the creator publishes a version.</div><div v-for="version in selectedMod.mod_versions" :key="version.id" class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] pt-4"><div><div class="text-sm font-semibold">{{version.version_number}}</div><div class="mt-1 text-[10px] text-[#8f849c]">{{version.file_name}} · {{version.loader}}</div></div><button @click="downloadVersion(selectedMod)" class="rounded-lg border border-white/10 px-4 py-2 text-xs font-bold hover:border-violet-400/50">Download <Download class="ml-1 inline" :size="13"/></button></div></div>
-    </main>
+ <main v-else-if="page==='project'&&selected" class="mx-auto min-h-[70vh] max-w-[1120px] px-5 py-12 lg:px-10"><button class="back-link mb-8" @click="navigate('discover')"><ArrowLeft :size="15"/> Back to library</button><section class="detail-panel"><div class="flex flex-wrap items-start gap-5"><div class="project-icon !h-20 !w-20 !rounded-2xl text-2xl"><img v-if="selected.icon_url" :src="selected.icon_url" :alt="selected.title+' icon'"/><span v-else>{{initials(selected.title)}}</span></div><div class="min-w-0 flex-1"><div class="text-[10px] font-bold uppercase tracking-[.2em] text-violet-300">{{selected.category}} / {{selected.loader}}</div><h1 class="mt-2 font-display text-3xl font-bold md:text-4xl">{{selected.title}}</h1><div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-[#9a91a8]"><span>By {{selected.author}}</span><span class="flex items-center gap-1"><Download :size="13"/>{{fmt(selected.downloads)}} downloads</span><span>{{selected.game_versions?.join(', ')||'Multiple versions'}}</span></div></div><button class="primary-button" :disabled="!selected.mod_versions?.length" @click="downloadRelease(selected)"><ArrowDownToLine :size="17"/> Download</button></div><div class="mt-9 border-t border-white/[.08] pt-7"><h2 class="font-display text-lg font-semibold">About this project</h2><p class="mt-3 whitespace-pre-line text-sm leading-8 text-[#b7aec5]">{{selected.description||selected.summary}}</p></div></section><section class="mt-6 rounded-2xl border border-white/[.08] bg-[#120f1b] p-6"><div class="flex items-center justify-between"><h2 class="font-display text-lg font-semibold">Releases</h2><span class="text-[10px] text-[#8c8299]">{{selected.mod_versions?.length||0}} versions</span></div><div v-if="!selected.mod_versions?.length" class="py-10 text-center text-xs text-[#8e859d]">No release files have been published yet.</div><div v-for="r in selected.mod_versions" :key="r.id" class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[.07] pt-4"><div><div class="text-sm font-semibold">{{r.version_number}}</div><div class="mt-1 text-[10px] text-[#8e859d]">{{r.file_name}} · {{r.loader}} · {{r.game_versions?.join(', ')}}</div><div v-if="r.release_notes" class="mt-2 text-xs text-[#aaa1b7]">{{r.release_notes}}</div></div><button class="secondary-button !px-4 !py-2.5" @click="downloadRelease(selected!,r)"><Download :size="14"/> Download</button></div></section></main>
 
-    <footer class="border-t border-white/[0.07] bg-[#09070e] px-5 py-8 text-center text-[10px] text-[#71687e]"><div class="mb-2 font-display text-lg font-bold text-[#dcd2e8]">Mine<span class="text-violet-400">Cart</span></div><p>Built for the Minecraft community. Not affiliated with Mojang or Microsoft.</p><p class="mt-2">© 2026 MineCart · Crafted by DeathAmir</p></footer>
-  </div>
+ <footer class="mc-footer"><div class="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-8 sm:flex-row sm:items-center sm:justify-between lg:px-10"><div class="flex items-center gap-3"><span class="brand-mark !h-9 !w-9"><Blocks :size="18"/></span><div><div class="font-display text-lg font-bold">mine<span class="text-violet-300">cart</span></div><div class="text-[9px] text-[#81788e]">A home for Minecraft creators.</div></div></div><div class="flex flex-wrap gap-5 text-[10px] font-semibold text-[#898096]"><a href="https://github.com/DeathAmir/MineCart" target="_blank" rel="noreferrer">GitHub</a><a href="https://github.com/DeathAmir/MineCart#setup" target="_blank" rel="noreferrer">Documentation</a><span>© 2026 MineCart · Crafted by DeathAmir</span></div></div><p class="border-t border-white/[.06] py-4 text-center text-[9px] text-[#625a70]">Not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB.</p></footer>
+ <Transition name="toast"><div v-if="toast" class="toast-message"><Check :size="16"/>{{toast}}</div></Transition>
+</div>
 </template>

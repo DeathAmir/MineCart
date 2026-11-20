@@ -1,0 +1,18 @@
+create extension if not exists pgcrypto;
+create table if not exists public.profiles(id uuid primary key references auth.users(id) on delete cascade,username text unique not null,bio text default '',avatar_url text,created_at timestamptz default now());
+create table if not exists public.mods(id uuid primary key default gen_random_uuid(),author_id uuid not null references public.profiles(id) on delete cascade,title text not null,slug text unique not null,summary text not null,description text default '',category text not null,loader text not null,game_versions text[] not null default '{}',icon_url text,status text not null default 'pending' check(status in ('pending','approved','rejected')),downloads bigint not null default 0,created_at timestamptz default now(),updated_at timestamptz default now());
+create table if not exists public.mod_versions(id uuid primary key default gen_random_uuid(),mod_id uuid not null references public.mods(id) on delete cascade,version_number text not null,game_versions text[] not null default '{}',file_path text not null,file_name text not null,file_size bigint not null default 0,loader text not null,release_notes text default '',downloads bigint default 0,created_at timestamptz default now(),unique(mod_id,version_number));
+alter table public.profiles enable row level security;alter table public.mods enable row level security;alter table public.mod_versions enable row level security;
+create policy "Profiles readable" on public.profiles for select using(true);
+create policy "Own profile editable" on public.profiles for update using(auth.uid()=id) with check(auth.uid()=id);
+create policy "Approved mods or own mods readable" on public.mods for select using(status='approved' or auth.uid()=author_id);
+create policy "Authenticated creator submits" on public.mods for insert to authenticated with check(auth.uid()=author_id);
+create policy "Creators edit own mods" on public.mods for update to authenticated using(auth.uid()=author_id) with check(auth.uid()=author_id);
+create policy "Creators delete own mods" on public.mods for delete to authenticated using(auth.uid()=author_id);
+create policy "Versions of visible mods readable" on public.mod_versions for select using(exists(select 1 from public.mods m where m.id=mod_id and (m.status='approved' or m.author_id=auth.uid())));
+create policy "Creators add versions" on public.mod_versions for insert to authenticated with check(exists(select 1 from public.mods m where m.id=mod_id and m.author_id=auth.uid()));
+insert into storage.buckets(id,name,public,file_size_limit) values('mod-files','mod-files',false,262144000),('mod-covers','mod-covers',true,5242880) on conflict(id) do nothing;
+create policy "Creator file upload" on storage.objects for insert to authenticated with check(bucket_id='mod-files' and (storage.foldername(name))[1]=auth.uid()::text);
+create policy "Creator file read" on storage.objects for select to authenticated using(bucket_id='mod-files' and (storage.foldername(name))[1]=auth.uid()::text);
+create policy "Cover upload" on storage.objects for insert to authenticated with check(bucket_id='mod-covers' and (storage.foldername(name))[1]=auth.uid()::text);
+create policy "Public covers" on storage.objects for select using(bucket_id='mod-covers');

@@ -45,3 +45,37 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+
+create or replace function public.prevent_mod_status_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status is distinct from old.status and coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'Only platform moderators can change project review status.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_mod_review_status on public.mods;
+create trigger protect_mod_review_status
+before update on public.mods
+for each row execute function public.prevent_mod_status_change();
+
+create or replace function public.increment_mod_download(p_mod_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.mods
+  set downloads = downloads + 1
+  where id = p_mod_id and status = 'approved';
+end;
+$$;
+
+revoke all on function public.increment_mod_download(uuid) from public;
+grant execute on function public.increment_mod_download(uuid) to anon, authenticated;

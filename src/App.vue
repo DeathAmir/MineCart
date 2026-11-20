@@ -83,7 +83,7 @@ async function downloadRelease(p:Project,r?:Release){
  if(!supabase||!release){notify('No downloadable release is available yet.');return}
  const {data,error}=await supabase.storage.from('mod-files').createSignedUrl(release.file_path,90)
  if(error){notify(error.message);return}
- const a=document.createElement('a');a.href=data.signedUrl;a.download=release.file_name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove()
+ const a=document.createElement('a');a.href=data.signedUrl;a.download=release.file_name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove()\n const counted=await supabase.rpc('increment_mod_download',{p_mod_id:p.id});if(!counted.error)p.downloads+=1
 }
 function keydown(e:KeyboardEvent){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();document.getElementById('project-search')?.focus()}if(e.key==='Escape')showFilters.value=false}
 onMounted(async()=>{

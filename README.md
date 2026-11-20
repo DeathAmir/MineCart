@@ -1,25 +1,60 @@
 # MineCart
 
-Minecraft mod discovery and publishing platform with a custom violet interface.
+A Minecraft mod discovery and creator platform with a custom violet interface.
 
 ## Stack
-Next.js 15, React 19, TypeScript, Supabase Auth/Postgres/Storage, GitHub Actions and Vercel.
+
+- Vue 3 + TypeScript
+- Vite
+- Tailwind CSS v4
+- Lucide Vue icons
+- Supabase Auth, Postgres and Storage (optional backend)
+- GitHub Actions + GitHub Pages static deployment
 
 ## Features
+
 - Responsive mod discovery, search and category filters
-- Creator accounts and session-based authentication
-- Creator upload studio with metadata and version fields
-- Dashboard for projects, download stats and moderation status
-- Project pages and release download UI
-- Modular app routes, shared components and typed data layer
+- Project detail and release listing
+- Supabase email/password account integration
+- Creator dashboard and project moderation status
+- Project upload flow for JAR/ZIP releases and cover images
+- Version metadata, loader and Minecraft version fields
+- Demo catalog when Supabase is not configured
 
-## Setup
+## Local development
+
+1. Install Node.js 22 or newer.
+2. Run `npm install`.
+3. Copy `.env.example` to `.env` and add your Supabase project URL and publishable/anon key.
+4. Run `npm run dev`.
+
+## Supabase setup
+
 1. Create a Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor.
-3. Copy `.env.example` to `.env.local` and set the Supabase URL and anon key.
-4. Run `npm install` and `npm run dev`.
+2. Run `supabase/schema.sql` in the Supabase SQL Editor.
+3. Configure the Auth email settings and allowed redirect URLs for your deployment.
+4. Add the frontend project URL and key to the build environment.
 
-## Deployment
-Import the repository into Vercel and add the Supabase environment variables. The GitHub Actions workflow runs a production build and deploys through Vercel CLI. Add repository Actions secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `NEXT_PUBLIC_SUPABASE_URL`, and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The deploy job requires the three Vercel secrets. Configure a Supabase project before using accounts, uploads or private file downloads.
+The browser uses only the Supabase publishable/anon key. Never put a Supabase service-role key in frontend code, GitHub Pages variables, or any `VITE_*` variable. Database and Storage access are governed by the included RLS policies.
 
-The UI includes demo catalog entries until the live database is connected. This repository is a full-stack application and cannot be hosted as a static GitHub Pages site.
+## GitHub Pages deployment
+
+The workflow in `.github/workflows/deploy.yml` builds the Vue application and deploys `dist/` on every push to `main`.
+
+After the first successful workflow run, open **Repository Settings → Pages** and confirm **Build and deployment → Source: GitHub Actions** if GitHub has not selected it automatically.
+
+The project-site base path is configured as `/MineCart/`, so the expected URL is:
+
+`https://deathamir.github.io/MineCart/`
+
+## Hosting limitation
+
+GitHub Pages serves static files only. It cannot run the application's server-side APIs. This deployment is suitable as a temporary frontend preview. For a public production service that accepts passwords and user uploads, deploy the authenticated application/backend on a suitable application host and keep Supabase RLS enabled. Do not treat GitHub Pages as a secure server-side environment.
+
+## Database moderation
+
+New projects are submitted with `pending` status. Approve a project by changing its `mods.status` to `approved` in Supabase. An admin dashboard can replace this manual step in a later iteration.
+
+---
+
+Made for the Minecraft community · MineCart

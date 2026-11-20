@@ -4,6 +4,7 @@ create table if not exists public.mods(id uuid primary key default gen_random_uu
 create table if not exists public.mod_versions(id uuid primary key default gen_random_uuid(),mod_id uuid not null references public.mods(id) on delete cascade,version_number text not null,game_versions text[] not null default '{}',file_path text not null,file_name text not null,file_size bigint not null default 0,loader text not null,release_notes text default '',downloads bigint default 0,created_at timestamptz default now(),unique(mod_id,version_number));
 alter table public.profiles enable row level security;alter table public.mods enable row level security;alter table public.mod_versions enable row level security;
 create policy "Profiles readable" on public.profiles for select using(true);
+create policy "Own profile insert" on public.profiles for insert to authenticated with check(auth.uid()=id);
 create policy "Own profile editable" on public.profiles for update using(auth.uid()=id) with check(auth.uid()=id);
 create policy "Approved mods or own mods readable" on public.mods for select using(status='approved' or auth.uid()=author_id);
 create policy "Authenticated creator submits" on public.mods for insert to authenticated with check(auth.uid()=author_id);
